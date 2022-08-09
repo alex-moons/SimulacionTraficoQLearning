@@ -9,10 +9,16 @@ int main(){
     string pName,desc;
 
     cin>>nDesigners;
+    if ((nDesigners>= 0) && (nDesigners>=200000)){
+        cout<<"Error, designer's not within limit"<<endl;
+        exit(1);
+    }
+    
     cin>>pName;
     
     for (int i = 0; i < nDesigners; i++){
-        cin>>desc;
+        getline(cin, desc);
+        pName.replace(pName.find(desc[0]),1,desc[2]);
+        cout<<pName<<endl;
     }
-
 }
