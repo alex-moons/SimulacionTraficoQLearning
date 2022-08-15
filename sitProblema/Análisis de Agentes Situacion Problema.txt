@@ -1,0 +1,35 @@
+Tipos de Agentes:
+- carAg(ap.bumpAg, ap.stoplightAg... )
+	-Setup
+		-Velocidad= 0
+		-Rendimiento= 100%
+		-Passengers >= 1
+		-startpos
+		-endpos
+	-speed up
+	-slow down
+- bumpAg() -static
+- stoplightAg()
+	-Setup
+		-state=randomState
+	-changeState
+- signAg -static
+- personAg
+	-Setup
+		-Movement
+	-changeMovement
+	-startpos
+	-endpos
+- weatherAg
+	-Setup
+		-Random(Sunny, Rainy, Foggy)
+	-changeWeather
+-roadCondAg(ap.weatherAg)
+	-Setup
+		-Random(0-100%)
+	-weatherImpact
+-parkingSportAg
+	-Setup
+		-randomOccupancy(0-100%)
+		-queue
+	-UpdateQueues
