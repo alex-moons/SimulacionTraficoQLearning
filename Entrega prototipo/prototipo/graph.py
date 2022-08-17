@@ -9,7 +9,7 @@ class Graph:
         return iter(self.vert_dict.values())
 
     def add_vertex(self, node):
-        self.num_vertices = self.num_vertices + 1
+        self.num_vertices += 1
         new_vertex = Vertex(node)
         self.vert_dict[node] = new_vertex
         return new_vertex
