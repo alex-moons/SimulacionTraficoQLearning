@@ -14,18 +14,23 @@ g.add_edge((212,222),(190,222),30)
 g.add_edge((190,222),(85,222),30)
 g.add_edge((85,222),(50,222),30)
 g.add_edge((50,222),(20,222),30)
+
 #Drop-off Luis Elizondo
 g.add_edge((585,222),(570,232),30)
 g.add_edge((570,232),(555,222),30)
 
 #C. Asunción
 g.add_edge((190,222),(160,280),30)
+
 #Monteviedo
 g.add_edge((245,280),(212,222),30)
+
 #Caracas
 g.add_edge((300,222),(332,280),30)
+
 #Bogota
 g.add_edge((421,280),(470,222),30)
+
 #Av. Junco de la Vega
 g.add_edge((490,222),(490,280),30)
 g.add_edge((540,20),(570,222),30)
@@ -35,10 +40,10 @@ g.add_edge((103,130),(115,50),30)
 g.add_edge((98,158),(103,130),30)
 g.add_edge((86,222),(98,158),30)
 g.add_edge((75,280),(86,222),30)
+
 #Drop-off Eugenio Garza Sada Sur
 g.add_edge((103,130),(108,148),30)
 g.add_edge((108,146),(98,158),30)
-
 
 car = Vehicle(580,222,-3,0,(70,222))
 
