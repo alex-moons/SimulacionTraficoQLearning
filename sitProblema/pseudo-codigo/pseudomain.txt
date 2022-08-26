@@ -1,0 +1,70 @@
+class Car(ap.Agent):
+    def setup(self):
+        self.current_waypoint
+        self.next_waypoint
+        self.destination
+
+        self.length=4
+        self.width=2
+        self.view_range=5
+
+        self.velocity=0
+        self.rendimiento=100
+        self.caminoDeNodos=[]
+
+    def setup_pos(self, space):
+        self.space=space
+        self.current_waypoint=space.waypoints_graph[space.positions[self]]
+        self.destination=space.generators[random]
+        pass
+
+    def update_velocity(self):
+        nbs=self.space.neighbors(self, self.view_range)
+
+    def redirect(self, meta, final):
+        # depending on the destination, the car will choose the connected nodes to the objective and destination
+        for i in range(nodosTotales):
+            self.caminoDeNodos.append(nodosDelMapa[i])
+
+    def changeSpeed(self, speedUp):
+        if(speedUp):
+            speed+=1
+        else:
+            speed-=1
+
+class Stoplight(ap.Agent):
+    def setup(self):
+        self.pos
+        self.state
+        self.cross_section
+        self.deltaTime
+
+    def changeState(self):
+        if(time<5):
+            # red
+            self.state=False
+        else:
+            # green
+            self.state=True
+
+# necesario tener este o no?
+class SpeedBump(ap.Agent):
+    def setup(self):
+        self.pos
+    def detection(self):
+        car.changeSpeed(False)
+        change direction
+        car.changeSpeed(True)
+
+class DropOff(ap.Agent):
+    def setup(self):
+        self.pos
+        self.occupied=False
+        self.queue=[]
+    def insert(self, ap.Car):
+        self.queue.append(self.ap.Car)
+    def pop(self):
+        self.queue.delete(0)
+    def findCar(self, iter):
+        return self.queue[iter]
+    
