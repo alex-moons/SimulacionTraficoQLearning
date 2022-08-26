@@ -26,6 +26,12 @@ class Car(ap.Agent):
         for i in range(nodosTotales):
             self.caminoDeNodos.append(nodosDelMapa[i])
 
+    def observeStopLight(self, ap.Stoplight):
+        if(Stoplight.state):
+            changeSpeed(False)
+        else:
+            changeSpeed(True)
+
     def changeSpeed(self, speedUp):
         if(speedUp):
             speed+=1
