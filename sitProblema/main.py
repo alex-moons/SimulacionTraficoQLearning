@@ -252,7 +252,7 @@ parameters = {
     'height': 50,
     'population': 1,
     'size': 50,
-    'steps': 100,
+    #'steps': 100,
     'seed': 123,
     'waypoints': [(20,30),(30,30),(20,20),(30,20)],
     'waypoint_edges': [[(20,30), (30,30), 5],
@@ -262,6 +262,30 @@ parameters = {
     'pos_stoplight': [(25, 25)],
     'assigned_waypoint': [(20, 20)]
 }
+
+# ---------------------------------------------------------------------------------
+
+host, port = "127.0.0.1", 2345
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect((host, port))
+
+startPos = [0, 0, 0] #Vector3   x = 0, y = 0, z = 0
+
+receivedData = sock.recv(1024).decode("UTF-8")
+
+while receivedData is None:
+    print(".", end="")
+    receivedData = sock.recv(1024).decode("UTF-8")
+    """time.sleep(0.5) #sleep 0.5 sec
+    startPos[0] +=1 #increase x by one
+    posString = ','.join(map(str, startPos)) #Converting Vector3 to a string, example "0,0,0"
+    print(posString)
+
+    sock.sendall(posString.encode("UTF-8")) #Converting string to Byte, and sending it to C#
+    receivedData = sock.recv(1024).decode("UTF-8") #receiveing data in Byte fron C#, and converting it to String
+    print(receivedData)"""
+print("")
+print(receivedData)
 
 animation_plot(ModelMap, parameters)
 #mod = ModelMap(parameters=parameters)
