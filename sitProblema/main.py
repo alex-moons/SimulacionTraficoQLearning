@@ -1,9 +1,12 @@
+from operator import mod
 import random
 import agentpy as ap
 import numpy as np
 import matplotlib.pyplot as plt
 import IPython
 import networkx as nx
+import socket
+import time
 
 # Funciones vectoriales ----------------------------------------------------------------------
 def normalize(v):
@@ -41,13 +44,13 @@ class Car(ap.Agent):
             el espacio del model del carro
         pos (float tuple):
             posicion actual del carro. Su posicion puede estar entre waypoints
-        waypoints (list of (int tuple)):
+        waypoints (list of (float tuple)):
             lista con todos los waypoints
-        current_waypoint (int tuple):
+        current_waypoint (float tuple):
             waypoint de donde sale el carro
-        next_waypoint (int tuple):
+        next_waypoint (float tuple):
             waypoint a donde se dirige el carro
-        destination (int tuple):
+        destination (float tuple):
             destino del carro
     """
 
@@ -111,14 +114,28 @@ class Car(ap.Agent):
     
 
 class Stoplight(ap.Agent):
-    def setup(self):
-        self.pos
-        self.assigned_waypoint
-        self.state
-        self.cross_section
+    """Los semaforos pertenecen a un cruce con ID y se les asigna un waypoint del cual los carros
+    no se pueden pasar si el semaforo se encuentra en rojo.
 
-    def setup_pos(self, space):
-        self.pos = space.waypoints_graph[space.positions[self]]
+    Atributos:
+        pos (float tuple):
+            posicion real del semaforo. No forma parte de los waypoints
+        assigned_waypoint (float tuple):
+            el waypoint perteneciente al semaforo. Los carros se deben detener ahi si el
+            semaforo esta en rojo
+        cross_section (int):
+            ID del cruce al cual pertenece el semaforo
+        state (int):
+            el estado del semaforo. 0 = verde, 1 = amarillo, 2 = rojo
+    """
+
+    def setup(self):
+        self.state = 1
+        self.cross_section = 1
+
+    def setup_pos(self, model: ap.Model):
+        self.pos = model.space.positions[self]
+        self.assigned_waypoint = model.p.assigned_waypoint[model.p.pos_stoplight.index(self.pos)]
 
     def changeState(self):
         pass
@@ -130,9 +147,25 @@ class SpeedBump(ap.Agent):
 
 
 class DropOff(ap.Agent):
+    """Los drop-offs son lugares donde los carros se pueden estacionar. Cada uno tiene su 
+    ubicacion y su estado de si esta ocupado o no
+
+    Atributos:
+        pos (float tuple):
+            posicion real del drop-off
+        occupied (bool):
+            indica si el drop-off esta ocupado
+    """
+
     def setup(self):
         self.pos
         self.occupied = False
+    
+    def setup_pos(self, model: ap.Model):
+        self.pos = model.space.positions[self]
+
+    def change_state(self):
+        self.occupied = not self.occupied
 
 # Modelo -------------------------------------------------------------------------------------
 class ModelMap(ap.Model):
@@ -225,7 +258,9 @@ parameters = {
     'waypoint_edges': [[(20,30), (30,30), 5],
                         [(30,30), (30,20), 5],
                         [(30,20), (20,20), 5],
-                        [(20,20), (20,30), 5],]
+                        [(20,20), (20,30), 5],],
+    'pos_stoplight': [(25, 25)],
+    'assigned_waypoint': [(20, 20)]
 }
 
 animation_plot(ModelMap, parameters)
