@@ -265,7 +265,7 @@ parameters = {
 
 # ---------------------------------------------------------------------------------
 
-host, port = "127.0.0.1", 2345
+host, port = "127.0.0.1", 36258
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.connect((host, port))
 
