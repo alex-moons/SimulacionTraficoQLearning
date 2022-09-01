@@ -1,5 +1,7 @@
+from __future__ import generators
 from operator import mod
 import random
+import re
 import agentpy as ap
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,6 +23,58 @@ def distance(a, b):
 
 def vector_distance(a, b):
     return [a[0] - b[0], a[1] - b[1]]
+
+def get_waypoints_edge_list(receivedData: str):
+    waypoint_edges = list()
+    edgeList = receivedData.split(";")
+    #print(receivedData)
+    #print(edgeList[len(edgeList)-1])
+    for edge in edgeList:
+        #print(edge)
+        if (edge != "" and edge != "#"):
+            #print(edge)
+            items = edge.split('&')
+            waypoint_edge = list()
+            node = items[0].split(",")
+            x = node[0]
+            y = node[1]
+            x = x[1:]
+            y = y[:-1]
+            waypoint_edge.append((float(x),float(y)))
+
+            node = items[1].split(",")
+            x = node[0]
+            y = node[1]
+            x = x[1:]
+            y = y[:-1]
+            waypoint_edge.append((float(x),float(y)))
+
+            waypoint_edge.append(items[2])
+
+            waypoint_edges.append(waypoint_edge)
+        elif (edge == "#"):
+            waypoint_edges.append("#")
+    
+    return waypoint_edges
+
+def get_generators_endpoints(receivedData: str):
+    waypoint_edges = list()
+    edgeList = receivedData.split("&")
+    #print(receivedData)
+    #print(edgeList[len(edgeList)-1])
+    for edge in edgeList:
+        print(edge)
+        if (edge != "" and edge != "#"):
+            #print(edge)
+            items = edge.split(',')
+            x = items[0]
+            y = items[1]
+            x = x[1:]
+            y = y[:-1]
+            waypoint_edges.append((float(x),float(y)))
+        elif (edge == "#"):
+            waypoint_edges.append("#")
+    return waypoint_edges
 
 # Agentes ------------------------------------------------------------------------------------
 class Car(ap.Agent):
@@ -198,10 +252,71 @@ class ModelMap(ap.Model):
         - free: el espacio esta libre para que un carro pase
         - generator: carros son creados y destruidos en estos puntos
         """
+
+        #TCP Connection 
+        host, port = "127.0.0.1", 25001
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #self.sock.bind((host, port))
+        print("Socket bind")
+        self.sock.connect((host, port))
+        print("Socket connect")
+
+        posString = "Begin connection"
+        self.sock.sendall(posString.encode("UTF-8"))
+
+        #Recibir las conexiones de nodos
+        receivedData = ""
+        waypoint_edges = list()
+        while (receivedData != "#"):
+            receivedData = self.sock.recv(1048576).decode("UTF-8")
+            temp_edge = get_waypoints_edge_list(receivedData)
+            for i in temp_edge:
+                waypoint_edges.append(i)
+            if (waypoint_edges[len(waypoint_edges)-1] == '#'):
+                waypoint_edges.remove("#")
+                receivedData = "#"
+        
+        #Mandar confirmacion a Unity
+        posString = "nodes received"
+        self.sock.sendall(posString.encode("UTF-8"))
+
+        #Recibir generators
+        receivedData = ""
+        self.generators = list()
+        while (receivedData != "#"):
+            receivedData = self.sock.recv(1048576).decode("UTF-8")
+            temp_generators = get_generators_endpoints(receivedData)
+            for i in temp_generators:
+                self.generators.append(i)
+            if (self.generators[len(self.generators)-1] == '#'):
+                self.generators.remove("#")
+                receivedData = "#"
+        
+        posString = "generators received"
+        self.sock.sendall(posString.encode("UTF-8"))
+
+        #Recibir endpoints
+        receivedData = ""
+        endpoints = list()
+        while (receivedData != "#"):
+            #print(receivedData)
+            receivedData = self.sock.recv(1048576).decode("UTF-8")
+            temp_endpoints = get_generators_endpoints(receivedData)
+            for i in temp_endpoints:
+                endpoints.append(i)
+            #print(len(generators))
+            if (endpoints[len(endpoints)-1] == '#'):
+                endpoints.remove("#")
+                receivedData = "#"
+
+        posString = "endpoints received"
+        self.sock.sendall(posString.encode("UTF-8"))
+
+        
         self.waypoints_list = self.p.waypoints
         self.waypoints_graph = nx.DiGraph()
-        self.waypoints_graph.add_nodes_from(self.p.waypoints)
-        for edge in self.p.waypoint_edges:
+        #self.waypoints_graph.add_nodes_from(self.p.waypoints)
+        for edge in waypoint_edges:
             self.waypoints_graph.add_edge(edge[0], edge[1], weight=edge[2])
         #self.generators
 
@@ -219,9 +334,13 @@ class ModelMap(ap.Model):
         #self.space.add_agents(self.dropOffAgents, p.dropOffPos)
 
     def step(self):
+        print("step")
         #self.stoplightAgents.changeState()
         #print("Initiate step")
         self.carAgents.update_pos()
+        for car in self.carAgents:
+            carpos = str(car.pos)
+            self.sock.sendall(carpos.encode("UTF-8"))
         #print("Step done")
 
 def animation_plot_single(m, ax):
@@ -265,27 +384,35 @@ parameters = {
 
 # ---------------------------------------------------------------------------------
 
-host, port = "127.0.0.1", 2345
+"""host, port = "127.0.0.1", 25001
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#sock.bind((host, port))
+print("Socket bind")
 sock.connect((host, port))
+print("Socket connect")
 
-startPos = [0, 0, 0] #Vector3   x = 0, y = 0, z = 0
+#conn,addr=sock.accept()
+#startPos = [0, 0, 0] #Vector3   x = 0, y = 0, z = 0
+posString = "Begin connection" #Converting Vector3 to a string, example "0,0,0"
+
+sock.sendall(posString.encode("UTF-8"))
 
 receivedData = sock.recv(1024).decode("UTF-8")
+print("Data received")
 
-while receivedData is None:
+while receivedData == "":
     print(".", end="")
     receivedData = sock.recv(1024).decode("UTF-8")
-    """time.sleep(0.5) #sleep 0.5 sec
+    time.sleep(0.5) #sleep 0.5 sec
     startPos[0] +=1 #increase x by one
     posString = ','.join(map(str, startPos)) #Converting Vector3 to a string, example "0,0,0"
     print(posString)
 
     sock.sendall(posString.encode("UTF-8")) #Converting string to Byte, and sending it to C#
     receivedData = sock.recv(1024).decode("UTF-8") #receiveing data in Byte fron C#, and converting it to String
-    print(receivedData)"""
+    print(receivedData)
 print("")
-print(receivedData)
+print(receivedData)"""
 
 animation_plot(ModelMap, parameters)
 #mod = ModelMap(parameters=parameters)
