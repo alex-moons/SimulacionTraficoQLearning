@@ -1,7 +1,7 @@
-from __future__ import generators
 from operator import mod
 import random
 import re
+from tracemalloc import start
 import agentpy as ap
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,12 +27,8 @@ def vector_distance(a, b):
 def get_waypoints_edge_list(receivedData: str):
     waypoint_edges = list()
     edgeList = receivedData.split(";")
-    #print(receivedData)
-    #print(edgeList[len(edgeList)-1])
     for edge in edgeList:
-        #print(edge)
         if (edge != "" and edge != "#"):
-            #print(edge)
             items = edge.split('&')
             waypoint_edge = list()
             node = items[0].split(",")
@@ -60,12 +56,8 @@ def get_waypoints_edge_list(receivedData: str):
 def get_generators_endpoints(receivedData: str):
     waypoint_edges = list()
     edgeList = receivedData.split("&")
-    #print(receivedData)
-    #print(edgeList[len(edgeList)-1])
     for edge in edgeList:
-        print(edge)
         if (edge != "" and edge != "#"):
-            #print(edge)
             items = edge.split(',')
             x = items[0]
             y = items[1]
@@ -118,6 +110,8 @@ class Car(ap.Agent):
         self.velocity = 0
         self.rendimiento = 100 #El carro se descompone (obstaculo) si rendimiento llega a 0
 
+        self.active = False
+
     def setup_pos(self, model: ap.Model):
         """Se le asigna al carro su posicion actual y su destino, ambos al azar.
         Su next_waypoint se asigna en update_waypoint()
@@ -125,14 +119,17 @@ class Car(ap.Agent):
         
         self.model = model
         self.space = model.space
-        self.waypoints = self.model.waypoints_list
+        self.waypoints = self.model.waypoints_graph
 
-        self.current_waypoint = self.waypoints[random.randint(0,len(self.waypoints)-1)]
+        self.current_waypoint = (self.space.positions[self][0], self.space.positions[self][1])
+        #self.waypoints[random.randint(0,len(self.waypoints)-1)]
         self.pos = self.current_waypoint
-        self.destination = self.waypoints[random.randint(0,len(self.waypoints)-1)]
-        self.next_waypoint = self.waypoints[random.randint(0,len(self.waypoints)-1)]
+        self.destination = self.model.endpoints[random.randint(0,len(self.model.endpoints)-1)]
+        self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
 
         self.space.move_to(self, np.asarray(self.pos))
+
+        self.active = True
 
     def update_velocity(self):
         """Se actualiza la velocidad del carro dependiendo de sus neighbors, incluyendo
@@ -151,11 +148,14 @@ class Car(ap.Agent):
             if (self.next_waypoint == self.destination):
                 #if (space.position_states[self.pos] == "generator"):
                 #self.space.remove_agents(self)
-                while (self.destination == self.current_waypoint):
-                    self.destination = self.waypoints[random.randint(0,len(self.waypoints)-1)]
-
-            while (self.next_waypoint == self.current_waypoint): 
-                self.next_waypoint = self.waypoints[random.randint(0,len(self.waypoints)-1)]
+                self.active = False
+                self.space.remove_agents(self)
+            elif (len(self.waypoints[self.current_waypoint]) == 0):
+                print(self.current_waypoint)
+                self.active = False
+                self.space.remove_agents(self)
+            else:
+                self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
 
 
     def update_pos(self):
@@ -297,51 +297,66 @@ class ModelMap(ap.Model):
 
         #Recibir endpoints
         receivedData = ""
-        endpoints = list()
+        self.endpoints = list()
         while (receivedData != "#"):
             #print(receivedData)
             receivedData = self.sock.recv(1048576).decode("UTF-8")
             temp_endpoints = get_generators_endpoints(receivedData)
             for i in temp_endpoints:
-                endpoints.append(i)
+                self.endpoints.append(i)
             #print(len(generators))
-            if (endpoints[len(endpoints)-1] == '#'):
-                endpoints.remove("#")
+            if (self.endpoints[len(self.endpoints)-1] == '#'):
+                self.endpoints.remove("#")
                 receivedData = "#"
 
         posString = "endpoints received"
         self.sock.sendall(posString.encode("UTF-8"))
 
         
-        self.waypoints_list = self.p.waypoints
+        #self.waypoints_list = self.p.waypoints
         self.waypoints_graph = nx.DiGraph()
         #self.waypoints_graph.add_nodes_from(self.p.waypoints)
         for edge in waypoint_edges:
             self.waypoints_graph.add_edge(edge[0], edge[1], weight=edge[2])
-        #self.generators
 
         self.space = ap.Space(self,shape=(self.p.length, self.p.height))
-        #self.position_states
         self.carAgents = ap.AgentList(self, self.p.population, Car)
         #self.stoplightAgents = ap.AgentList(self, self.p.population, Stoplight)
         #self.speedBumpAgents = ap.AgentList(self, self.p.population, SpeedBump)
         #self.dropOffAgents = ap.AgentList(self, self.p.population, DropOff)
-        self.space.add_agents(self.carAgents, random=True)
-        self.carAgents.setup_pos(self)
+        #self.space.add_agents(self.carAgents, random=True)
+        #self.carAgents.setup_pos(self)
         print("Setup done")
         #self.space.add_agents(self.stoplightAgents, p.stoplightPos)
         #self.space.add_agents(self.speedBumpAgents, p.speedBumpPos)
         #self.space.add_agents(self.dropOffAgents, p.dropOffPos)
 
     def step(self):
-        print("step")
+        """
+        - Instantiate new cars
+        - Change environment
+        - Change car positions
+        - Send string with info of
+            - Stoplights
+            - Cars
+        """
+        #print("step")
         #self.stoplightAgents.changeState()
         #print("Initiate step")
-        self.carAgents.update_pos()
+        out_info = ""
         for car in self.carAgents:
-            carpos = str(car.pos)
-            self.sock.sendall(carpos.encode("UTF-8"))
+            if (not car.active):
+                if (random.randint(1, 100) >= 60):
+                    startPos = self.generators[random.randint(0, len(self.generators))]
+                    self.space.add_agents([car], [[startPos[0], startPos[1]]])
+                    car.setup_pos(self)
+            else:
+                car.update_pos()
+                carpos = str(car.pos)
+                car_info = str(car.id) + " " + carpos
+                self.sock.sendall(car_info.encode("UTF-8"))
         #print("Step done")
+
 
 def animation_plot_single(m, ax):
     ax.set_title(f"AgentPy {2}D t={m.t}")
@@ -369,15 +384,15 @@ def animation_plot(m, p):
 parameters = {
     'length': 50,
     'height': 50,
-    'population': 1,
+    'population': 5,
     'size': 50,
-    #'steps': 100,
+    'steps': 10000,
     'seed': 123,
-    'waypoints': [(20,30),(30,30),(20,20),(30,20)],
-    'waypoint_edges': [[(20,30), (30,30), 5],
+    #'waypoints': [(20,30),(30,30),(20,20),(30,20)],
+    """'waypoint_edges': [[(20,30), (30,30), 5],
                         [(30,30), (30,20), 5],
                         [(30,20), (20,20), 5],
-                        [(20,20), (20,30), 5],],
+                        [(20,20), (20,30), 5],],"""
     'pos_stoplight': [(25, 25)],
     'assigned_waypoint': [(20, 20)]
 }
@@ -414,7 +429,9 @@ while receivedData == "":
 print("")
 print(receivedData)"""
 
-animation_plot(ModelMap, parameters)
+model_map = ModelMap(parameters)
+res = model_map.run()
+#animation_plot(ModelMap, parameters)
 #mod = ModelMap(parameters=parameters)
 #print(mod.run()['info'])
 
