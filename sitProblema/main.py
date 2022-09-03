@@ -1,30 +1,31 @@
-from operator import mod
 import random
-import re
-from tracemalloc import start
 import agentpy as ap
 import numpy as np
 import matplotlib.pyplot as plt
 import IPython
 import networkx as nx
 import socket
-import time
 
 # Funciones vectoriales ----------------------------------------------------------------------
 def normalize(v):
-    """ Normalize a vector to length 1. """
+    """ Normaliza el vector a tamaño 1 """
     norm = np.linalg.norm(v)
     if norm == 0:
         return v
     return v / norm
 
 def distance(a, b):
+    """Magnitud de distancia entre dos puntos"""
     return ((a[0] - b[0])**2 + (a[1] - b[1])**2)**0.5
 
 def vector_distance(a, b):
+    """Vector de distancia entre 2 puntos"""
     return [a[0] - b[0], a[1] - b[1]]
 
 def get_waypoints_edge_list(receivedData: str):
+    """La funcion recibe un string con todos los edges y los transforma en una lista
+    para despues agregar las edges a un DiGraph. El string debe ser de formato:
+    (x1,y1);(x1,y2);weight1&(x3,y3);(x4,y4);weight2&...#"""
     waypoint_edges = list()
     edgeList = receivedData.split(";")
     for edge in edgeList:
@@ -54,6 +55,9 @@ def get_waypoints_edge_list(receivedData: str):
     return waypoint_edges
 
 def get_generators_endpoints(receivedData: str):
+    """Recibe un string con los generadores o los endpoints y los convierte en una lista.
+    El formato del string es:
+    (x1,y1)&(x1,y1)&...#"""
     waypoint_edges = list()
     edgeList = receivedData.split("&")
     for edge in edgeList:
@@ -68,7 +72,7 @@ def get_generators_endpoints(receivedData: str):
             waypoint_edges.append("#")
     return waypoint_edges
 
-# Agentes ------------------------------------------------------------------------------------
+# AGENTES ------------------------------------------------------------------------------------
 class Car(ap.Agent):
     """Clase para todos los agentes de tipo carro. Los carros acutalizaran
     su velocidad en base a los semaforos, topes y otros carros en frente de ellos.
@@ -84,6 +88,8 @@ class Car(ap.Agent):
             rapidez del vector de velocidad
         rendimiento (int):
             El carro se descompone (obstaculo) si rendimiento llega a 0
+        active (bool):
+            Muestra si el carro se encuentra activo dentro del espacio del modelo
         model (agentpy.Model):
             el modelo al cual el carro pertenece
         space (agentpy.Space):
@@ -108,27 +114,29 @@ class Car(ap.Agent):
 
         #Variables del carro
         self.velocity = 0
-        self.rendimiento = 100 #El carro se descompone (obstaculo) si rendimiento llega a 0
-
+        self.speed = 0.2
+        self.rendimiento = 100
         self.active = False
 
     def setup_pos(self, model: ap.Model):
-        """Se le asigna al carro su posicion actual y su destino, ambos al azar.
+        """Se le asigna al carro su posicion actual de la lista de generadores
+        y su destino de la lista de endpoints, ambos al azar.
         Su next_waypoint se asigna en update_waypoint()
         """
         
+        #Se asigna la instancia del modelo, su espacio y el grafo con los waypoints
         self.model = model
         self.space = model.space
         self.waypoints = self.model.waypoints_graph
 
+        #Se asignan los waypoints
         self.current_waypoint = (self.space.positions[self][0], self.space.positions[self][1])
-        #self.waypoints[random.randint(0,len(self.waypoints)-1)]
         self.pos = self.current_waypoint
         self.destination = self.model.endpoints[random.randint(0,len(self.model.endpoints)-1)]
         self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
 
+        #Activar el carro en el espacio del modelo
         self.space.move_to(self, np.asarray(self.pos))
-
         self.active = True
 
     def update_velocity(self):
@@ -137,34 +145,32 @@ class Car(ap.Agent):
 
         #nbs = self.space.neighbors(self, self.veiw_range)
         self.velocity = normalize(vector_distance(self.next_waypoint,self.pos))
-        self.velocity[0] *= 1
-        self.velocity[1] *= 1
+        self.velocity[0] *= self.speed
+        self.velocity[1] *= self.speed
         
     def update_waypoint(self):
-        """Se actualizan los waypoints cuando el carro llega a next_waypoint"""
+        """Se actualizan los waypoints cuando el carro llega a next_waypoint. Si el carro
+        llega a su destino, este se remueve del espacio y se desactiva."""
 
-        if (distance(self.pos, self.next_waypoint) <= 0.2):
+        #Revisa si se llego a la distancia minima
+        if (distance(self.pos, self.next_waypoint) <= 1):
             self.current_waypoint = self.next_waypoint
             if (self.next_waypoint == self.destination):
-                #if (space.position_states[self.pos] == "generator"):
-                #self.space.remove_agents(self)
                 self.active = False
                 self.space.remove_agents(self)
             elif (len(self.waypoints[self.current_waypoint]) == 0):
-                print(self.current_waypoint)
                 self.active = False
                 self.space.remove_agents(self)
             else:
                 self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
 
-
     def update_pos(self):
         """Se actualiza la posicion del carro en base a su velocidad"""
         self.update_waypoint()
-        self.update_velocity()
-
-        self.pos = (self.pos[0] + self.velocity[0], self.pos[1] + self.velocity[1])
-        self.space.move_by(self, self.velocity)
+        if (self.active):
+            self.update_velocity()
+            self.pos = (self.pos[0] + self.velocity[0], self.pos[1] + self.velocity[1])
+            self.space.move_by(self, self.velocity)
     
 
 class Stoplight(ap.Agent):
@@ -231,14 +237,14 @@ class ModelMap(ap.Model):
         p (dict):
             Lista de parametros necesarios:
                 population (int): numero maximo de agentes
-                steps (int): tiempo que dura la simulacion
-                waypoints (list of (int tuple)): lista de nodos donde hay waypoints
-                waypoint_edges (list of [(int tuple), (int tuple), int]): lista con los
-                edges y sus pesos
-        waypoints_list (list of (int tuple)):
-            lista donde se guarda p.waypoints
+                steps (int): tiempo que dura la simulacion. Los steps son infinitos
+                si no se pasa este parametro
         waypoints_graph (networkx.Digraph):
             grafo direccionado con los waypoints y sus conexiones
+        generators (list of tuple(float, float)):
+            lista con los generadores, donde pueden generarse carros
+        endpoint (list of tuple(float, float)):
+            lista con los endpoints, donde pueden desactivarse carros
         space (agentpy.Space):
             Espacio donde interactuan los agentes del modelo
         carAgents (agentpy.AgenList):
@@ -250,86 +256,76 @@ class ModelMap(ap.Model):
         - occupied: el espacio esta ocupado por un vehiculo
         - blocked: el espacio esta bloqueado por un obstaculo
         - free: el espacio esta libre para que un carro pase
-        - generator: carros son creados y destruidos en estos puntos
         """
 
-        #TCP Connection 
+        #Conexion TCP con Unity
         host, port = "127.0.0.1", 25001
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         #self.sock.bind((host, port))
-        print("Socket bind")
+        #print("Socket bind")
         self.sock.connect((host, port))
-        print("Socket connect")
+        print("Socket connected")
+        tcp_message = "Begin connection"
+        self.sock.sendall(tcp_message.encode("UTF-8"))
 
-        posString = "Begin connection"
-        self.sock.sendall(posString.encode("UTF-8"))
-
-        #Recibir las conexiones de nodos
-        receivedData = ""
+        #Recibir los edges de waypoints hasta encontrar un #
+        received_data = ""
         waypoint_edges = list()
-        while (receivedData != "#"):
-            receivedData = self.sock.recv(1048576).decode("UTF-8")
-            temp_edge = get_waypoints_edge_list(receivedData)
+        while (received_data != "#"):
+            received_data = self.sock.recv(1048576).decode("UTF-8")
+            temp_edge = get_waypoints_edge_list(received_data)
             for i in temp_edge:
                 waypoint_edges.append(i)
             if (waypoint_edges[len(waypoint_edges)-1] == '#'):
                 waypoint_edges.remove("#")
-                receivedData = "#"
+                received_data = "#"
         
-        #Mandar confirmacion a Unity
-        posString = "nodes received"
-        self.sock.sendall(posString.encode("UTF-8"))
+        #Confirmacion a Unity que se recibieron los waypoints
+        tcp_message = "waypoints received"
+        self.sock.sendall(tcp_message.encode("UTF-8"))
 
-        #Recibir generators
-        receivedData = ""
+        #Recibir los generators hasta encontrar un #
+        received_data = ""
         self.generators = list()
-        while (receivedData != "#"):
-            receivedData = self.sock.recv(1048576).decode("UTF-8")
-            temp_generators = get_generators_endpoints(receivedData)
+        while (received_data != "#"):
+            received_data = self.sock.recv(1048576).decode("UTF-8")
+            temp_generators = get_generators_endpoints(received_data)
             for i in temp_generators:
                 self.generators.append(i)
             if (self.generators[len(self.generators)-1] == '#'):
                 self.generators.remove("#")
-                receivedData = "#"
+                received_data = "#"
         
-        posString = "generators received"
-        self.sock.sendall(posString.encode("UTF-8"))
+        #Confirmacion a Unity que se recibieron los generadores
+        tcp_message = "generators received"
+        self.sock.sendall(tcp_message.encode("UTF-8"))
 
-        #Recibir endpoints
-        receivedData = ""
+        #Recibir los endpoints hasta encontrar un #
+        received_data = ""
         self.endpoints = list()
-        while (receivedData != "#"):
-            #print(receivedData)
-            receivedData = self.sock.recv(1048576).decode("UTF-8")
-            temp_endpoints = get_generators_endpoints(receivedData)
+        while (received_data != "#"):
+            received_data = self.sock.recv(1048576).decode("UTF-8")
+            temp_endpoints = get_generators_endpoints(received_data)
             for i in temp_endpoints:
                 self.endpoints.append(i)
-            #print(len(generators))
             if (self.endpoints[len(self.endpoints)-1] == '#'):
                 self.endpoints.remove("#")
-                receivedData = "#"
+                received_data = "#"
 
-        posString = "endpoints received"
-        self.sock.sendall(posString.encode("UTF-8"))
+         #Confirmacion a Unity que se recibieron los endpoints
+        tcp_message = "endpoints received"
+        self.sock.sendall(tcp_message.encode("UTF-8"))
 
-        
-        #self.waypoints_list = self.p.waypoints
+        #Agregar las edges al DiGraph self.waypoints_graph
         self.waypoints_graph = nx.DiGraph()
-        #self.waypoints_graph.add_nodes_from(self.p.waypoints)
         for edge in waypoint_edges:
             self.waypoints_graph.add_edge(edge[0], edge[1], weight=edge[2])
 
+        #Se inicializa el espacio (agentpy.Space) y se crean las listas de agentes
         self.space = ap.Space(self,shape=(self.p.length, self.p.height))
         self.carAgents = ap.AgentList(self, self.p.population, Car)
-        #self.stoplightAgents = ap.AgentList(self, self.p.population, Stoplight)
-        #self.speedBumpAgents = ap.AgentList(self, self.p.population, SpeedBump)
-        #self.dropOffAgents = ap.AgentList(self, self.p.population, DropOff)
-        #self.space.add_agents(self.carAgents, random=True)
-        #self.carAgents.setup_pos(self)
-        print("Setup done")
-        #self.space.add_agents(self.stoplightAgents, p.stoplightPos)
-        #self.space.add_agents(self.speedBumpAgents, p.speedBumpPos)
-        #self.space.add_agents(self.dropOffAgents, p.dropOffPos)
+
+        print("Space setup done")
 
     def step(self):
         """
@@ -340,24 +336,46 @@ class ModelMap(ap.Model):
             - Stoplights
             - Cars
         """
-        #print("step")
-        #self.stoplightAgents.changeState()
-        #print("Initiate step")
-        out_info = ""
+        
+        #Actualizar la informacion de los carros y mandar a Unity
+        car_out_info = "cars:"
         for car in self.carAgents:
+            #Si el carro no se encuentra activado hay un 40% de chance
+            #de activarlo
             if (not car.active):
                 if (random.randint(1, 100) >= 60):
-                    startPos = self.generators[random.randint(0, len(self.generators))]
+                    startPos = self.generators[random.randint(0, len(self.generators)-1)]
                     self.space.add_agents([car], [[startPos[0], startPos[1]]])
                     car.setup_pos(self)
+            #En caso de que el carro este activado, se actualiza su posicion
             else:
                 car.update_pos()
                 carpos = str(car.pos)
-                car_info = str(car.id) + " " + carpos
-                self.sock.sendall(car_info.encode("UTF-8"))
-        #print("Step done")
+                car_info = str(car.id) + ";" + carpos + "&"
+                car_out_info += car_info
+        
+        #Se manda la informacion a Unity y se espera una respuesta para iniciar
+        #el siguiente step
+        self.sock.sendall(car_out_info.encode("UTF-8"))
+        receivedData = ""
+        while (receivedData == ""):
+            receivedData = self.sock.recv(1048576).decode("UTF-8")
 
+# ---------------------------------------------------------------------------------
+parameters = {
+    'length': 50,
+    'height': 50,
+    'population': 60,
+    'steps': 10000,
+    'seed': 123,
+}
+# MAIN-----------------------------------------------------------------------------
 
+#Se crea la instancia del modelo y se inicia la simulacion
+model_map = ModelMap(parameters)
+res = model_map.run()
+
+"""
 def animation_plot_single(m, ax):
     ax.set_title(f"AgentPy {2}D t={m.t}")
     pos = m.space.positions.values()
@@ -381,25 +399,7 @@ def animation_plot(m, p):
     print("Show plt")
     return IPython.display.HTML(animation.to_jshtml(fps=20))
 
-parameters = {
-    'length': 50,
-    'height': 50,
-    'population': 5,
-    'size': 50,
-    'steps': 10000,
-    'seed': 123,
-    #'waypoints': [(20,30),(30,30),(20,20),(30,20)],
-    """'waypoint_edges': [[(20,30), (30,30), 5],
-                        [(30,30), (30,20), 5],
-                        [(30,20), (20,20), 5],
-                        [(20,20), (20,30), 5],],"""
-    'pos_stoplight': [(25, 25)],
-    'assigned_waypoint': [(20, 20)]
-}
-
-# ---------------------------------------------------------------------------------
-
-"""host, port = "127.0.0.1", 25001
+host, port = "127.0.0.1", 25001
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 #sock.bind((host, port))
 print("Socket bind")
@@ -427,12 +427,11 @@ while receivedData == "":
     receivedData = sock.recv(1024).decode("UTF-8") #receiveing data in Byte fron C#, and converting it to String
     print(receivedData)
 print("")
-print(receivedData)"""
+print(receivedData)
 
-model_map = ModelMap(parameters)
-res = model_map.run()
-#animation_plot(ModelMap, parameters)
-#mod = ModelMap(parameters=parameters)
-#print(mod.run()['info'])
+animation_plot(ModelMap, parameters)
+mod = ModelMap(parameters=parameters)
+print(mod.run()['info'])
+"""
 
-#https://www.redblobgames.com/pathfinding/a-star/implementation.html
+
