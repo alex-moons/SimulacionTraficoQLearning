@@ -166,6 +166,10 @@ class Car(ap.Agent):
         self.space.move_to(self, np.asarray(self.pos))
         self.active = True
 
+        #Asignarle un camino inicial siendo el más corto (A*)
+        self.shortest_pathway=nx.astar_path(self.waypoints, current_waypoint, destination)
+        # mandar info de 'shortest_pathway' hacia el unity, para que este ultimo los mande al carro
+
     def update_velocity(self):
         """Se actualiza la velocidad del carro dependiendo de sus neighbors, incluyendo
         semaforos, obstaculos y otros carros"""
@@ -182,14 +186,13 @@ class Car(ap.Agent):
         #Revisa si se llego a la distancia minima
         if (distance(self.pos, self.next_waypoint) <= 1):
             self.current_waypoint = self.next_waypoint
-            if (self.next_waypoint == self.destination):
-                self.active = False
-                self.space.remove_agents(self)
-            elif (len(self.waypoints[self.current_waypoint]) == 0):
+            if ((self.next_waypoint == self.destination) or (len(self.waypoints[self.current_waypoint]) == 0)):
                 self.active = False
                 self.space.remove_agents(self)
             else:
                 self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
+                self.shortest_pathway=nx.astar_path(self.waypoints, current_waypoint, destination)
+        
 
     def update_pos(self):
         """Se actualiza la posicion del carro en base a su velocidad"""
