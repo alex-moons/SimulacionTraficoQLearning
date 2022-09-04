@@ -40,10 +40,11 @@ void displayAdjList(const vector<vector<int>> &adjList) {
 // Complejidad: O()
 void DFS(vector<vector<int>> &adjList, int inicio) {
     int nnodes = adjList.size();
+    int cost=1;
     vector<bool> status(nnodes, false);
     stack<int> tovisit;
     tovisit.push(0);
-    cout << "DFS: ";
+    cout << "DFS: \n";
     while (!tovisit.empty())
     {
         int node = tovisit.top();
@@ -52,12 +53,18 @@ void DFS(vector<vector<int>> &adjList, int inicio) {
         // {
             // status[node] = true;
             cout << node << " ";
+            // if(adjList[node].size() == 0){
+            //     cout << endl << "Coste: " << cost << endl;
+            //     cost=1;
+            // }else{
+            //     cost++;
+            // }
             for (int a = adjList[node].size() - 1; a >= 0; a--)
             {
-                if (!status[adjList[node][a]])
-                {
+                // if (!status[adjList[node][a]])
+                // {
                     tovisit.push(adjList[node][a]);
-                }
+                // }
             }
         // }
     }
