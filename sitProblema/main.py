@@ -48,7 +48,7 @@ def get_waypoints_edge_list(receivedData: str):
             y = y[:-1]
             waypoint_edge.append((float(x),float(y)))
 
-            waypoint_edge.append(items[2])
+            waypoint_edge.append(int(items[2]))
 
             waypoint_edges.append(waypoint_edge)
         elif (edge == "#"):
@@ -155,19 +155,28 @@ class Car(ap.Agent):
         self.model = model
         self.space = model.space
         self.waypoints = self.model.waypoints_graph
+        self.pathway = list()
 
         #Se asignan los waypoints
         self.current_waypoint = (self.space.positions[self][0], self.space.positions[self][1])
         self.pos = self.current_waypoint
         self.destination = self.model.endpoints[random.randint(0,len(self.model.endpoints)-1)]
-        self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
+        #self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
 
         #Activar el carro en el espacio del modelo
         self.space.move_to(self, np.asarray(self.pos))
         self.active = True
 
         #Asignarle un camino inicial siendo el más corto (A*)
-        self.shortest_pathway=nx.astar_path(self.waypoints, current_waypoint, destination)
+        pathway_possible = False
+        while (not pathway_possible):
+            try:
+                self.pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
+                pathway_possible = True
+            except nx.NetworkXNoPath:
+                self.destination = self.model.endpoints[random.randint(0,len(self.model.endpoints)-1)]
+        self.next_waypoint = self.pathway[1]
+        #print(self.pathway)
         # mandar info de 'shortest_pathway' hacia el unity, para que este ultimo los mande al carro
 
     def update_velocity(self):
@@ -190,8 +199,11 @@ class Car(ap.Agent):
                 self.active = False
                 self.space.remove_agents(self)
             else:
-                self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
-                self.shortest_pathway=nx.astar_path(self.waypoints, current_waypoint, destination)
+                self.pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
+                self.next_waypoint = self.pathway[1]
+                #print(self.pathway)
+                #self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
+                #self.shortest_pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
         
 
     def update_pos(self):
@@ -362,7 +374,7 @@ class ModelMap(ap.Model):
         tcp_message = "stoplights received"
         self.sock.sendall(tcp_message.encode("UTF-8"))
 
-        print(stoplights_list)
+        #print(stoplights_list)
 
         #Agregar las edges al DiGraph self.waypoints_graph
         self.waypoints_graph = nx.DiGraph()
