@@ -1,4 +1,6 @@
+from multiprocessing.resource_sharer import stop
 import random
+from tempfile import tempdir
 import agentpy as ap
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,7 +27,7 @@ def vector_distance(a, b):
 def get_waypoints_edge_list(receivedData: str):
     """La funcion recibe un string con todos los edges y los transforma en una lista
     para despues agregar las edges a un DiGraph. El string debe ser de formato:
-    (x1,y1);(x1,y2);weight1&(x3,y3);(x4,y4);weight2&...#"""
+    (x1,y1)&(x1,y2)&weight1;(x3,y3)&(x4,y4)&weight2;...#"""
     waypoint_edges = list()
     edgeList = receivedData.split(";")
     for edge in edgeList:
@@ -71,6 +73,31 @@ def get_generators_endpoints(receivedData: str):
         elif (edge == "#"):
             waypoint_edges.append("#")
     return waypoint_edges
+
+def get_stoplights(received_data: str):
+    """Formato id1&(x1,y1)&(x2,y2)&...;id2&(x3,y3)&(x4,y4)&...;...#"""
+    stoplights_id_list = list()
+    stoplights_waypoint_list = list()
+    stoplights_list = received_data.split(';')
+    for stoplight in stoplights_list:
+        if (stoplight != "" and stoplight != "#"):
+            data = stoplight.split('&')
+            stoplights_id_list.append(int(data[0]))
+            data.remove(data[0])
+            waypoints = list()
+            for waypoint in data:
+                items = waypoint.split(',')
+                x = items[0]
+                y = items[1]
+                x = x[1:]
+                y = y[:-1]
+                waypoints.append((float(x),float(y)))
+            stoplights_waypoint_list.append(waypoints)
+        elif (stoplight == "#"):
+            stoplights_id_list.append(-1)
+            stoplights_waypoint_list.append("#")
+
+    return stoplights_id_list, stoplights_waypoint_list
 
 # AGENTES ------------------------------------------------------------------------------------
 class Car(ap.Agent):
@@ -312,9 +339,27 @@ class ModelMap(ap.Model):
                 self.endpoints.remove("#")
                 received_data = "#"
 
-         #Confirmacion a Unity que se recibieron los endpoints
+        #Confirmacion a Unity que se recibieron los endpoints
         tcp_message = "endpoints received"
         self.sock.sendall(tcp_message.encode("UTF-8"))
+
+        #Recibir las stoplights hasta encontrar un #
+        received_data = ""
+        stoplights_list = list()
+        while (received_data != "#"):
+            received_data = self.sock.recv(1048576).decode("UTF-8")
+            temp_ids, temp_waypoints = get_stoplights(received_data)
+            for i in temp_ids:
+                stoplights_list.append((i, temp_waypoints[temp_ids.index(i)]))
+            if (stoplights_list[len(stoplights_list)-1][0] == -1):
+                stoplights_list.remove(stoplights_list[len(stoplights_list)-1])
+                received_data = "#"
+
+        #Confirmacion a Unity que se recibieron los endpoints
+        tcp_message = "stoplights received"
+        self.sock.sendall(tcp_message.encode("UTF-8"))
+
+        print(stoplights_list)
 
         #Agregar las edges al DiGraph self.waypoints_graph
         self.waypoints_graph = nx.DiGraph()
