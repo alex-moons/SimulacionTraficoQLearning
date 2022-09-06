@@ -1,3 +1,4 @@
+import math
 from multiprocessing.resource_sharer import stop
 import random
 from tempfile import tempdir
@@ -7,6 +8,9 @@ import matplotlib.pyplot as plt
 import IPython
 import networkx as nx
 import socket
+import time
+
+MARGIN = 500.0
 
 # Funciones vectoriales ----------------------------------------------------------------------
 def normalize(v):
@@ -39,14 +43,14 @@ def get_waypoints_edge_list(receivedData: str):
             y = node[1]
             x = x[1:]
             y = y[:-1]
-            waypoint_edge.append((float(x),float(y)))
+            waypoint_edge.append((round(float(x),4),round(float(y),4)))
 
             node = items[1].split(",")
             x = node[0]
             y = node[1]
             x = x[1:]
             y = y[:-1]
-            waypoint_edge.append((float(x),float(y)))
+            waypoint_edge.append((round(float(x),4),round(float(y),4)))
 
             waypoint_edge.append(int(items[2]))
 
@@ -69,20 +73,21 @@ def get_generators_endpoints(receivedData: str):
             y = items[1]
             x = x[1:]
             y = y[:-1]
-            waypoint_edges.append((float(x),float(y)))
+            waypoint_edges.append((round(float(x),4),round(float(y),4)))
         elif (edge == "#"):
             waypoint_edges.append("#")
     return waypoint_edges
 
 def get_stoplights(received_data: str):
-    """Formato id1&(x1,y1)&(x2,y2)&...;id2&(x3,y3)&(x4,y4)&...;...#"""
+    """Formato id1&cross1&(x1,y1)&(x2,y2)&...;id2&cross2&(x3,y3)&(x4,y4)&...;...#"""
     stoplights_id_list = list()
     stoplights_waypoint_list = list()
     stoplights_list = received_data.split(';')
     for stoplight in stoplights_list:
         if (stoplight != "" and stoplight != "#"):
             data = stoplight.split('&')
-            stoplights_id_list.append(int(data[0]))
+            stoplights_id_list.append([int(data[0]),int(data[1])])
+            data.remove(data[0])
             data.remove(data[0])
             waypoints = list()
             for waypoint in data:
@@ -91,10 +96,10 @@ def get_stoplights(received_data: str):
                 y = items[1]
                 x = x[1:]
                 y = y[:-1]
-                waypoints.append((float(x),float(y)))
+                waypoints.append((round(float(x),4),round(float(y),4)))
             stoplights_waypoint_list.append(waypoints)
         elif (stoplight == "#"):
-            stoplights_id_list.append(-1)
+            stoplights_id_list.append([-1,-1])
             stoplights_waypoint_list.append("#")
 
     return stoplights_id_list, stoplights_waypoint_list
@@ -137,7 +142,7 @@ class Car(ap.Agent):
         #Dimensiones del carro
         self.length=4
         self.width=2
-        self.veiw_range=5
+        self.veiw_range=40
 
         #Variables del carro
         self.velocity = 0
@@ -158,18 +163,20 @@ class Car(ap.Agent):
         self.pathway = list()
 
         #Se asignan los waypoints
-        self.current_waypoint = (self.space.positions[self][0], self.space.positions[self][1])
+        self.current_waypoint = (round(self.space.positions[self][0]-MARGIN,4), round(self.space.positions[self][1]-MARGIN,4))
         self.pos = self.current_waypoint
         self.destination = self.model.endpoints[random.randint(0,len(self.model.endpoints)-1)]
         #self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
 
         #Activar el carro en el espacio del modelo
-        self.space.move_to(self, np.asarray(self.pos))
         self.active = True
 
         #Asignarle un camino inicial siendo el más corto (A*)
         pathway_possible = False
         while (not pathway_possible):
+            #print(self.waypoints[self.destination])
+            #print(self.waypoints[self.current_waypoint])
+            
             try:
                 self.pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
                 pathway_possible = True
@@ -182,11 +189,18 @@ class Car(ap.Agent):
     def update_velocity(self):
         """Se actualiza la velocidad del carro dependiendo de sus neighbors, incluyendo
         semaforos, obstaculos y otros carros"""
-
-        #nbs = self.space.neighbors(self, self.veiw_range)
         self.velocity = normalize(vector_distance(self.next_waypoint,self.pos))
         self.velocity[0] *= self.speed
         self.velocity[1] *= self.speed
+
+        for nb in self.space.neighbors(self, self.veiw_range):
+            if (isinstance(nb, Stoplight)):
+                if (not nb.state):
+                    for waypoint in nb.assigned_waypoints:
+                        #print(self.pos, self.space.positions[self], nb.pos, self.space.positions[nb], distance(self.pos, waypoint))
+                        if (distance(self.pos, waypoint) <= 3):
+                            self.velocity[0] *= 0
+                            self.velocity[1] *= 0 
         
     def update_waypoint(self):
         """Se actualizan los waypoints cuando el carro llega a next_waypoint. Si el carro
@@ -201,10 +215,7 @@ class Car(ap.Agent):
             else:
                 self.pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
                 self.next_waypoint = self.pathway[1]
-                #print(self.pathway)
-                #self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
-                #self.shortest_pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
-        
+                
 
     def update_pos(self):
         """Se actualiza la posicion del carro en base a su velocidad"""
@@ -213,6 +224,7 @@ class Car(ap.Agent):
             self.update_velocity()
             self.pos = (self.pos[0] + self.velocity[0], self.pos[1] + self.velocity[1])
             self.space.move_by(self, self.velocity)
+            #print(self.pos, self.space.positions[self])
     
 
 class Stoplight(ap.Agent):
@@ -227,20 +239,39 @@ class Stoplight(ap.Agent):
             semaforo esta en rojo
         cross_section (int):
             ID del cruce al cual pertenece el semaforo
-        state (int):
-            el estado del semaforo. 0 = verde, 1 = amarillo, 2 = rojo
+        state (bool):
+            el estado del semaforo. True = rojo, False = verde
     """
 
     def setup(self):
-        self.state = 1
-        self.cross_section = 1
+        self.state = True
+        self.interval_time = 10
+        self.already_changed = False
 
-    def setup_pos(self, model: ap.Model):
-        self.pos = model.space.positions[self]
-        self.assigned_waypoint = model.p.assigned_waypoint[model.p.pos_stoplight.index(self.pos)]
+    def setup_pos(self, model: ap.Model, id):
+        stoplight_info = model.stoplights_list[id]
+        self.id = stoplight_info[0]
+        self.crossway_stoplight = stoplight_info[1]
+        self.assigned_waypoints = stoplight_info[2]
+        self.pos = stoplight_info[2][0]
 
-    def changeState(self):
-        pass
+    def setup_crossway_state(self, model: ap.Model):
+        self.already_changed = True
+        self.state = not self.state
+        for stoplight in model.stoplight_agents:
+            if stoplight.id == self.crossway_stoplight:
+                stoplight.state = not self.state
+                stoplight.already_changed = True
+
+    def change_state(self, model: ap.Model):
+        #print((math.floor(time.time()) - model.model_start_time)%self.interval_time)
+        if ((math.floor(time.time()) - model.model_start_time)%self.interval_time == 0 
+        and not self.state and not self.already_changed):
+            self.setup_crossway_state(model)
+            #print("state changed")
+        else:
+            if ((math.floor(time.time()) - model.model_start_time)%self.interval_time != 0):
+                self.already_changed = False
 
 
 class SpeedBump(ap.Agent):
@@ -360,30 +391,44 @@ class ModelMap(ap.Model):
 
         #Recibir las stoplights hasta encontrar un #
         received_data = ""
-        stoplights_list = list()
+        self.stoplights_list = list()
         while (received_data != "#"):
             received_data = self.sock.recv(1048576).decode("UTF-8")
             temp_ids, temp_waypoints = get_stoplights(received_data)
             for i in temp_ids:
-                stoplights_list.append((i, temp_waypoints[temp_ids.index(i)]))
-            if (stoplights_list[len(stoplights_list)-1][0] == -1):
-                stoplights_list.remove(stoplights_list[len(stoplights_list)-1])
+                self.stoplights_list.append((i[0], i[1], temp_waypoints[temp_ids.index(i)]))
+            if (self.stoplights_list[len(self.stoplights_list)-1][0] == -1):
+                self.stoplights_list.remove(self.stoplights_list[len(self.stoplights_list)-1])
                 received_data = "#"
 
-        #Confirmacion a Unity que se recibieron los endpoints
+        #Confirmacion a Unity que se recibieron las stoplights
         tcp_message = "stoplights received"
         self.sock.sendall(tcp_message.encode("UTF-8"))
-
-        #print(stoplights_list)
 
         #Agregar las edges al DiGraph self.waypoints_graph
         self.waypoints_graph = nx.DiGraph()
         for edge in waypoint_edges:
             self.waypoints_graph.add_edge(edge[0], edge[1], weight=edge[2])
+        
+        for edge in self.waypoints_graph:
+            print(edge)
 
         #Se inicializa el espacio (agentpy.Space) y se crean las listas de agentes
         self.space = ap.Space(self,shape=(self.p.length, self.p.height))
-        self.carAgents = ap.AgentList(self, self.p.population, Car)
+        self.car_agents = ap.AgentList(self, self.p.population, Car)
+        self.stoplight_agents = ap.AgentList(self, len(self.stoplights_list), Stoplight)
+
+        info_index = 0
+        for stoplight in self.stoplight_agents:
+            stoplight.setup_pos(self, info_index)
+            stoplight_pos = self.stoplights_list[info_index][2]
+            self.space.add_agents([stoplight], [[round(stoplight_pos[0][0]+MARGIN,4), round(stoplight_pos[0][1]+MARGIN,4)]])
+            info_index += 1
+        
+        for stoplight in self.stoplight_agents:
+            stoplight.setup_crossway_state(self)
+
+        self.model_start_time = math.floor(time.time())
 
         print("Space setup done")
 
@@ -397,15 +442,26 @@ class ModelMap(ap.Model):
             - Cars
         """
         
+        stoplights_out_info = "stoplights:"
+        for stoplight in self.stoplight_agents:
+            stoplight.change_state(self)
+            stoplights_out_info += str(stoplight.id) + "&" + str(stoplight.state) + ";"
+        
+        #print(stoplights_out_info)
+        self.sock.sendall(stoplights_out_info.encode("UTF-8"))
+        receivedData = ""
+        while (receivedData == ""):
+            receivedData = self.sock.recv(1048576).decode("UTF-8")
+
         #Actualizar la informacion de los carros y mandar a Unity
         car_out_info = "cars:"
-        for car in self.carAgents:
+        for car in self.car_agents:
             #Si el carro no se encuentra activado hay un 40% de chance
             #de activarlo
             if (not car.active):
                 if (random.randint(1, 100) >= 60):
                     startPos = self.generators[random.randint(0, len(self.generators)-1)]
-                    self.space.add_agents([car], [[startPos[0], startPos[1]]])
+                    self.space.add_agents([car], [[round(startPos[0]+MARGIN,4), round(startPos[1]+MARGIN,4)]])
                     car.setup_pos(self)
             #En caso de que el carro este activado, se actualiza su posicion
             else:
@@ -423,11 +479,11 @@ class ModelMap(ap.Model):
 
 # ---------------------------------------------------------------------------------
 parameters = {
-    'length': 50,
-    'height': 50,
-    'population': 60,
+    'length': 1000,
+    'height': 1000,
+    'population': 1,
     'steps': 10000,
-    'seed': 123,
+    'seed': 124,
 }
 # MAIN-----------------------------------------------------------------------------
 
