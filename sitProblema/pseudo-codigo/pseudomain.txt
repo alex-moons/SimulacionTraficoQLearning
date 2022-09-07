@@ -1,76 +1,66 @@
-class Car(ap.Agent):
-    def setup(self):
-        self.current_waypoint
-        self.next_waypoint
-        self.destination
+importacion de librerias importantes
 
-        self.length=4
-        self.width=2
-        self.view_range=5
+funcion que normaliza un vector a tamaño uno
 
-        self.velocity=0
-        self.rendimiento=100
-        self.caminoDeNodos=[]
+funcion que saca la magnitud entre dos puntos
 
-    def setup_pos(self, space):
-        self.space=space
-        self.current_waypoint=space.waypoints_graph[space.positions[self]]
-        self.destination=space.generators[random]
-        pass
+funcion que saca vector entre dos puntos
 
-    def update_velocity(self):
-        nbs=self.space.neighbors(self, self.view_range)
+funcion que recibe el string de los endpoints o spawners  y los hace una lista
 
-    def redirect(self, meta, final):
-        # depending on the destination, the car will choose the connected nodes to the objective and destination
-        for i in range(nodosTotales):
-            self.caminoDeNodos.append(nodosDelMapa[i])
+funcion que conveirte la información del string recibido del unity en los puntos o nodos que usaremos
 
-    def observeStopLight(self, ap.Stoplight):
-        if(Stoplight.state):
-            changeSpeed(False)
-        else:
-            changeSpeed(True)
+funcion que recibe la informacion de los semáforos
 
-    def changeSpeed(self, speedUp):
-        if(speedUp):
-            speed+=1
-        else:
-            speed-=1
+# Los agentes
+El agente carro:
+    atributos:
+        medidas
+        rango de vision
+        velocidades
+        rendimiento
+        estados activos o inactivos
+    acciones:
+        -asignarle su posicion inicial, su destino y se ejecuta el algoritmo A* para calcular la distancia más rápida para llegar al destino, en caso de no haber ninguna se le asigna otro destino distinto hasta que sea una distancia válida
+        -actualizar la velocidad del vehículo dependiendo de lo que pasa en su entorno, ya sean otro carros, semáforos u otros obstáculos. 
+        -actualizar la rutas del carro cuando cambia de waypoint, osea cada que pasa por un nodo.
+        -actualizar posición de acuerdo a su velocidad
 
-class Stoplight(ap.Agent):
-    def setup(self):
-        self.pos
-        self.state
-        self.cross_section
-        self.deltaTime
+El agente semáforo:
+    atributos:
+        estado
+        tiempos de intervalo
+        estado de cambio
+    acciones:
+        -establecer la posicion del semáforo
+        -establecer el estado del semaforo
+        -cambiar de estado
 
-    def changeState(self):
-        if(time<5):
-            # red
-            self.state=False
-        else:
-            # green
-            self.state=True
+El agente bache:
+    atributo:
+        posicion
 
-# necesario tener este o no?
-class SpeedBump(ap.Agent):
-    def setup(self):
-        self.pos
-    def detection(self):
-        car.changeSpeed(False)
-        change direction
-        car.changeSpeed(True)
+El agente DropOff:
+    atributos:
+        posicion
+        estado ocupado
+    acciones:
+        -establecer posicion
+        -cambiar de estado
 
-class DropOff(ap.Agent):
-    def setup(self):
-        self.pos
-        self.occupied=False
-        self.queue=[]
-    def insert(self, ap.Car):
-        self.queue.append(self.ap.Car)
-    def pop(self):
-        self.queue.delete(0)
-    def findCar(self, iter):
-        return self.queue[iter]
-    
+El modelo del mapa:
+    atributos:
+        el host y puerto para conectarse con unity
+        la informacion recibida del Unity, conteniendo el modelo de la autopista (nodos y sus conexiones) y semáforos
+        se inicializa el grafo que represente todo el mapa
+    accion:
+        intancia nuevos carros
+        cambia el ambiente y posiciones del carro
+        y manda informacion de los semáforos y carros
+
+se meten los parametros al modelo
+
+y finalmente se inicializa
+
+
+
