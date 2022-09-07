@@ -1,5 +1,6 @@
 import math
 from multiprocessing.resource_sharer import stop
+from pydoc import ispackage
 import random
 from tempfile import tempdir
 import agentpy as ap
@@ -19,6 +20,9 @@ def normalize(v):
     if norm == 0:
         return v
     return v / norm
+
+def mag(x): 
+    return math.sqrt(sum(i**2 for i in x))
 
 def distance(a, b):
     """Magnitud de distancia entre dos puntos"""
@@ -189,11 +193,22 @@ class Car(ap.Agent):
     def update_velocity(self):
         """Se actualiza la velocidad del carro dependiendo de sus neighbors, incluyendo
         semaforos, obstaculos y otros carros"""
+
+        #arrive to waypoint
+        #get waypoint with shortest distance
+        #if can get to destino, follow
+        #else choose other
+        #if occupied and only way, wait
+        
+        is_path_free = [True for i in range(len(self.waypoints[self.current_waypoint]))]
         self.velocity = normalize(vector_distance(self.next_waypoint,self.pos))
         self.velocity[0] *= self.speed
         self.velocity[1] *= self.speed
 
+        
+
         for nb in self.space.neighbors(self, self.veiw_range):
+            
             if (isinstance(nb, Stoplight)):
                 if (not nb.state):
                     for waypoint in nb.assigned_waypoints:
@@ -201,6 +216,41 @@ class Car(ap.Agent):
                         if (distance(self.pos, waypoint) <= 3):
                             self.velocity[0] *= 0
                             self.velocity[1] *= 0 
+            
+            elif (isinstance(nb, Car)):
+                #or self.next_waypoint == nb.next_waypoint
+                if (self.next_waypoint == nb.current_waypoint):
+                    if (len(self.waypoints[self.current_waypoint]) != 1):
+                        i = 0
+                        for other_path in self.waypoints[self.current_waypoint]:
+                            for other_nb in self.space.neighbors(self, self.veiw_range):
+                                if (isinstance(other_nb, Car)):
+                                    if (other_path == other_nb.next_waypoint or self.next_waypoint == other_nb.next_waypoint):
+                                        is_path_free[i] = False
+                                        break
+                            try:
+                                self.pathway=nx.astar_path(self.waypoints, other_path, self.destination)
+                                self.next_waypoint = other_path
+                            except nx.NetworkXNoPath:
+                                is_path_free[i] = False
+                            i += 1
+                    else:
+                        is_path_free[0] = False
+
+                    try:
+                        new_path = list(self.waypoints[self.current_waypoint])[is_path_free.index(True)]
+                        self.pathway=nx.astar_path(self.waypoints, new_path, self.destination)
+                        self.next_waypoint = new_path
+                    except ValueError:
+                        self.velocity[0] *= 0
+                        self.velocity[1] *= 0
+
+                dist = (self.pos[0] + (self.velocity[0] * self.length*5), self.pos[1] + (self.velocity[1] * self.length*5))
+                #print(self.pos, dist)
+                if (distance(nb.pos, dist) <= 4):
+                    self.velocity[0] *= 0
+                    self.velocity[1] *= 0
+
         
     def update_waypoint(self):
         """Se actualizan los waypoints cuando el carro llega a next_waypoint. Si el carro
@@ -213,8 +263,19 @@ class Car(ap.Agent):
                 self.active = False
                 self.space.remove_agents(self)
             else:
-                self.pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
-                self.next_waypoint = self.pathway[1]
+                dist = distance(self.pos, self.destination)
+                for paths in self.waypoints[self.current_waypoint]:
+                    if (distance(self.pos, paths) < dist):
+                        try:
+                                self.pathway=nx.astar_path(self.waypoints, paths, self.destination)
+                                self.next_waypoint = paths
+                                dist = distance(self.pos, paths)
+                        except nx.NetworkXNoPath:
+                            pass
+                if (dist == distance(self.pos, self.destination)):
+                    self.next_waypoint = self.destination
+                else:
+                    self.next_waypoint = self.pathway[0]
                 
 
     def update_pos(self):
@@ -409,9 +470,6 @@ class ModelMap(ap.Model):
         self.waypoints_graph = nx.DiGraph()
         for edge in waypoint_edges:
             self.waypoints_graph.add_edge(edge[0], edge[1], weight=edge[2])
-        
-        for edge in self.waypoints_graph:
-            print(edge)
 
         #Se inicializa el espacio (agentpy.Space) y se crean las listas de agentes
         self.space = ap.Space(self,shape=(self.p.length, self.p.height))
@@ -429,6 +487,8 @@ class ModelMap(ap.Model):
             stoplight.setup_crossway_state(self)
 
         self.model_start_time = math.floor(time.time())
+
+        self.average_velocity = list()
 
         print("Space setup done")
 
@@ -454,6 +514,8 @@ class ModelMap(ap.Model):
             receivedData = self.sock.recv(1048576).decode("UTF-8")
 
         #Actualizar la informacion de los carros y mandar a Unity
+        total_velocity = 0
+        active_cars = 0
         car_out_info = "cars:"
         for car in self.car_agents:
             #Si el carro no se encuentra activado hay un 40% de chance
@@ -462,13 +524,24 @@ class ModelMap(ap.Model):
                 if (random.randint(1, 100) >= 60):
                     startPos = self.generators[random.randint(0, len(self.generators)-1)]
                     self.space.add_agents([car], [[round(startPos[0]+MARGIN,4), round(startPos[1]+MARGIN,4)]])
-                    car.setup_pos(self)
+                    if (len(self.space.neighbors(car, 10)) != 0):
+                        self.space.remove_agents(car)
+                        car.active = False
+                    else:
+                        car.setup_pos(self)
             #En caso de que el carro este activado, se actualiza su posicion
             else:
                 car.update_pos()
                 carpos = str(car.pos)
                 car_info = str(car.id) + ";" + carpos + "&"
                 car_out_info += car_info
+                total_velocity += mag(car.velocity)
+                active_cars += 1
+
+        if (active_cars != 0):
+            self.average_velocity.append((self.t,total_velocity/active_cars))
+        else:
+            self.average_velocity.append((self.t,0))
         
         #Se manda la informacion a Unity y se espera una respuesta para iniciar
         #el siguiente step
@@ -477,13 +550,20 @@ class ModelMap(ap.Model):
         while (receivedData == ""):
             receivedData = self.sock.recv(1048576).decode("UTF-8")
 
+    def end(self):
+        xs = [x[0] for x in self.average_velocity]
+        ys = [x[1] for x in self.average_velocity]
+        plt.plot(xs, ys)
+        plt.show()
+        #print("Showing plt")
+
 # ---------------------------------------------------------------------------------
 parameters = {
     'length': 1000,
     'height': 1000,
-    'population': 1,
-    'steps': 10000,
-    'seed': 124,
+    'population': 50,
+    'steps': 2000,
+    'seed': 123,
 }
 # MAIN-----------------------------------------------------------------------------
 
