@@ -11,6 +11,9 @@ import networkx as nx
 import socket
 import time
 
+""" El modelo de agentpy no tiene coordenadas negativas, mientras que Unity si tiene. Para resolver
+este problema se decidio que el modelo de agentpy esta desfazado por MARGIN para que no ocupe coordenadas
+negativas. Las posiciones y velocidades son calculadas y reflejadas adecuadamente en Unity """
 MARGIN = 500.0
 
 # Funciones vectoriales ----------------------------------------------------------------------
@@ -21,21 +24,22 @@ def normalize(v):
         return v
     return v / norm
 
-def mag(x): 
+def mag(x):
+    """ Magnitud de un vector """
     return math.sqrt(sum(i**2 for i in x))
 
 def distance(a, b):
-    """Magnitud de distancia entre dos puntos"""
+    """ Magnitud de distancia entre dos puntos """
     return ((a[0] - b[0])**2 + (a[1] - b[1])**2)**0.5
 
 def vector_distance(a, b):
-    """Vector de distancia entre 2 puntos"""
+    """ Vector de distancia entre 2 puntos """
     return [a[0] - b[0], a[1] - b[1]]
 
 def get_waypoints_edge_list(receivedData: str):
-    """La funcion recibe un string con todos los edges y los transforma en una lista
+    """ La funcion recibe un string con todos los edges y los transforma en una lista
     para despues agregar las edges a un DiGraph. El string debe ser de formato:
-    (x1,y1)&(x1,y2)&weight1;(x3,y3)&(x4,y4)&weight2;...#"""
+    (x1,y1)&(x1,y2)&weight1;(x3,y3)&(x4,y4)&weight2;...# """
     waypoint_edges = list()
     edgeList = receivedData.split(";")
     for edge in edgeList:
@@ -111,7 +115,7 @@ def get_stoplights(received_data: str):
 # AGENTES ------------------------------------------------------------------------------------
 class Car(ap.Agent):
     """Clase para todos los agentes de tipo carro. Los carros acutalizaran
-    su velocidad en base a los semaforos, topes y otros carros en frente de ellos.
+    su velocidad en base a los semaforos y otros carros en frente de ellos.
 
     Atributos:
         length, width (int):
@@ -122,8 +126,6 @@ class Car(ap.Agent):
             vector de velocidad del carro en dos dimensiones
         speed (float):
             rapidez del vector de velocidad
-        rendimiento (int):
-            El carro se descompone (obstaculo) si rendimiento llega a 0
         active (bool):
             Muestra si el carro se encuentra activo dentro del espacio del modelo
         model (agentpy.Model):
@@ -140,6 +142,8 @@ class Car(ap.Agent):
             waypoint a donde se dirige el carro
         destination (float tuple):
             destino del carro
+        pathway (list of (float tuple)):
+            camino generado por A* desde current_waypoint a destination
     """
 
     def setup(self):
@@ -149,9 +153,8 @@ class Car(ap.Agent):
         self.veiw_range=40
 
         #Variables del carro
-        self.velocity = 0
+        self.velocity = [0, 0]
         self.speed = 0.2
-        self.rendimiento = 100
         self.active = False
 
     def setup_pos(self, model: ap.Model):
@@ -170,56 +173,46 @@ class Car(ap.Agent):
         self.current_waypoint = (round(self.space.positions[self][0]-MARGIN,4), round(self.space.positions[self][1]-MARGIN,4))
         self.pos = self.current_waypoint
         self.destination = self.model.endpoints[random.randint(0,len(self.model.endpoints)-1)]
-        #self.next_waypoint = list(self.waypoints[self.current_waypoint])[random.randint(0,len(self.waypoints[self.current_waypoint])-1)]
 
         #Activar el carro en el espacio del modelo
         self.active = True
 
-        #Asignarle un camino inicial siendo el más corto (A*)
+        #Asignarle un camino con (A*)
         pathway_possible = False
         while (not pathway_possible):
-            #print(self.waypoints[self.destination])
-            #print(self.waypoints[self.current_waypoint])
-            
             try:
                 self.pathway=nx.astar_path(self.waypoints, self.current_waypoint, self.destination)
                 pathway_possible = True
             except nx.NetworkXNoPath:
+                #Si no existe un camino posible, se cambia el destination
                 self.destination = self.model.endpoints[random.randint(0,len(self.model.endpoints)-1)]
         self.next_waypoint = self.pathway[1]
-        #print(self.pathway)
-        # mandar info de 'shortest_pathway' hacia el unity, para que este ultimo los mande al carro
 
     def update_velocity(self):
         """Se actualiza la velocidad del carro dependiendo de sus neighbors, incluyendo
-        semaforos, obstaculos y otros carros"""
-
-        #arrive to waypoint
-        #get waypoint with shortest distance
-        #if can get to destino, follow
-        #else choose other
-        #if occupied and only way, wait
+        semaforos y otros carros"""
         
+        #Se crea una lista con los waypoints adyacentes del current_waypoint
+        #El carro se detiene si todos los caminos estan ocupados
         is_path_free = [True for i in range(len(self.waypoints[self.current_waypoint]))]
         self.velocity = normalize(vector_distance(self.next_waypoint,self.pos))
         self.velocity[0] *= self.speed
         self.velocity[1] *= self.speed
 
-        
-
+        #Busca todos los vecinos a su alrededor (Stoplights, Cars)
         for nb in self.space.neighbors(self, self.veiw_range):
-            
+            #El carro se detiene por completo si está en frente de un semaforo rojo
             if (isinstance(nb, Stoplight)):
                 if (not nb.state):
                     for waypoint in nb.assigned_waypoints:
-                        #print(self.pos, self.space.positions[self], nb.pos, self.space.positions[nb], distance(self.pos, waypoint))
                         if (distance(self.pos, waypoint) <= 3):
                             self.velocity[0] *= 0
                             self.velocity[1] *= 0 
             
+            #El carro busca otros caminos si un carro detenido esta en frente suyo
             elif (isinstance(nb, Car)):
-                #or self.next_waypoint == nb.next_waypoint
                 if (self.next_waypoint == nb.current_waypoint):
+                    #Si solo hay un camino posible, el carro se detiene atras del otro
                     if (len(self.waypoints[self.current_waypoint]) != 1):
                         i = 0
                         for other_path in self.waypoints[self.current_waypoint]:
@@ -259,10 +252,13 @@ class Car(ap.Agent):
         #Revisa si se llego a la distancia minima
         if (distance(self.pos, self.next_waypoint) <= 1):
             self.current_waypoint = self.next_waypoint
+            #Si llego a su destino, se remueve y desactiva el carro
             if ((self.next_waypoint == self.destination) or (len(self.waypoints[self.current_waypoint]) == 0)):
                 self.active = False
                 self.space.remove_agents(self)
             else:
+                #Si todavia no llega a su destino, se agarra el camino más corto de
+                #los nodos adyacentes, siempre y cuando tenga camino posible a destination
                 dist = distance(self.pos, self.destination)
                 for paths in self.waypoints[self.current_waypoint]:
                     if (distance(self.pos, paths) < dist):
@@ -277,31 +273,35 @@ class Car(ap.Agent):
                 else:
                     self.next_waypoint = self.pathway[0]
                 
-
     def update_pos(self):
         """Se actualiza la posicion del carro en base a su velocidad"""
         self.update_waypoint()
         if (self.active):
             self.update_velocity()
             self.pos = (self.pos[0] + self.velocity[0], self.pos[1] + self.velocity[1])
-            self.space.move_by(self, self.velocity)
-            #print(self.pos, self.space.positions[self])
-    
+            self.space.move_by(self, self.velocity)    
 
 class Stoplight(ap.Agent):
     """Los semaforos pertenecen a un cruce con ID y se les asigna un waypoint del cual los carros
     no se pueden pasar si el semaforo se encuentra en rojo.
 
     Atributos:
+        id (int):
+            identificador del semaforo necesario para comunicarse con el otro semaforo
+            de su cruce
         pos (float tuple):
-            posicion real del semaforo. No forma parte de los waypoints
-        assigned_waypoint (float tuple):
-            el waypoint perteneciente al semaforo. Los carros se deben detener ahi si el
+            posicion del primer assigned_waypoint, el cual es detectado por los carros
+        assigned_waypoints (list of (float tuple)):
+            lista de waypoints pertenecientes al semaforo. Los carros se deben detener ahi si el
             semaforo esta en rojo
-        cross_section (int):
-            ID del cruce al cual pertenece el semaforo
+        crossway_stoplight (int):
+            identificador del otro semaforo en el mismo cruce de este semaforo
         state (bool):
             el estado del semaforo. True = rojo, False = verde
+        interval_time (int):
+            tiempo que tarda el semaforo en cambiar su state
+        already_changed (bool):
+            indica si el semaforo ya cambio su state dentro de un mismo step
     """
 
     def setup(self):
@@ -310,6 +310,7 @@ class Stoplight(ap.Agent):
         self.already_changed = False
 
     def setup_pos(self, model: ap.Model, id):
+        """ Se establecen los datos iniciales del semaforo"""
         stoplight_info = model.stoplights_list[id]
         self.id = stoplight_info[0]
         self.crossway_stoplight = stoplight_info[1]
@@ -317,6 +318,7 @@ class Stoplight(ap.Agent):
         self.pos = stoplight_info[2][0]
 
     def setup_crossway_state(self, model: ap.Model):
+        """ Cambia los estados de los semaforos de un mismo cruce """
         self.already_changed = True
         self.state = not self.state
         for stoplight in model.stoplight_agents:
@@ -325,43 +327,15 @@ class Stoplight(ap.Agent):
                 stoplight.already_changed = True
 
     def change_state(self, model: ap.Model):
-        #print((math.floor(time.time()) - model.model_start_time)%self.interval_time)
+        """ Detecta si ya paso el intervalo de cambio de estado """
         if ((math.floor(time.time()) - model.model_start_time)%self.interval_time == 0 
         and not self.state and not self.already_changed):
             self.setup_crossway_state(model)
-            #print("state changed")
         else:
             if ((math.floor(time.time()) - model.model_start_time)%self.interval_time != 0):
                 self.already_changed = False
 
-
-class SpeedBump(ap.Agent):
-    def setup(self):
-        self.pos
-
-
-class DropOff(ap.Agent):
-    """Los drop-offs son lugares donde los carros se pueden estacionar. Cada uno tiene su 
-    ubicacion y su estado de si esta ocupado o no
-
-    Atributos:
-        pos (float tuple):
-            posicion real del drop-off
-        occupied (bool):
-            indica si el drop-off esta ocupado
-    """
-
-    def setup(self):
-        self.pos
-        self.occupied = False
-    
-    def setup_pos(self, model: ap.Model):
-        self.pos = model.space.positions[self]
-
-    def change_state(self):
-        self.occupied = not self.occupied
-
-# Modelo -------------------------------------------------------------------------------------
+# MODELO -------------------------------------------------------------------------------------
 class ModelMap(ap.Model):
     """La clase del modelo multi-agentes. Debe recibir un dict con parametros. 
     En setup se crean todos los agentes y se crea el grafo de waypoints en base a
@@ -370,33 +344,43 @@ class ModelMap(ap.Model):
     Atributos:
         p (dict):
             Lista de parametros necesarios:
+                length, height (int): el tamaño del modelo, debe ser igual o mas grande
+                    que el mapa de Unity
                 population (int): numero maximo de agentes
                 steps (int): tiempo que dura la simulacion. Los steps son infinitos
-                si no se pasa este parametro
-        waypoints_graph (networkx.Digraph):
+                    si no se pasa este parametro
+                seed (int): semilla que determina la randomness del modelo
+        sock (socket.socket):
+            el socket de transmision de datos con Unity. Tiene IP y puerto
+        waypoints_graph (networkx.Digraph de tuple(float, float)):
             grafo direccionado con los waypoints y sus conexiones
         generators (list of tuple(float, float)):
             lista con los generadores, donde pueden generarse carros
-        endpoint (list of tuple(float, float)):
+        endpoints (list of tuple(float, float)):
             lista con los endpoints, donde pueden desactivarse carros
         space (agentpy.Space):
             Espacio donde interactuan los agentes del modelo
-        carAgents (agentpy.AgenList):
+        car_agents (agentpy.AgenList):
             Lista con todos los agentes de tipo Car
+        stoplight_agents (agentpy.AgenList):
+            Lista con todos los agentes de tipo Stoplight
+        model_start_time (float):
+            tiempo, en segundos, de cuando se empezo a correr el programa. Es necesario para
+            contar el intervalo de cambio de estado en los semaforos
+        average_velocity (list of tuple (int, float)):
+            lista de las velocidades promedio de cada step del programa
     """
 
     def setup(self):
-        """Estados que pueden tener las posiciones:
-        - occupied: el espacio esta ocupado por un vehiculo
-        - blocked: el espacio esta bloqueado por un obstaculo
-        - free: el espacio esta libre para que un carro pase
-        """
+        """ Primero se inicaliza la conexion TCP con Unity, luego se reciben todos los datos
+        de posiciones de waypoints y semaforos. """
 
         #Conexion TCP con Unity
         host, port = "127.0.0.1", 25001
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #La siguiente linea comentada de codigo sirve para abrir el puerto, porque existe la
+        #posibilidad de que el codigo mande error de conexion rechazada.
         #self.sock.bind((host, port))
-        #print("Socket bind")
         self.sock.connect((host, port))
         print("Socket connected")
         tcp_message = "Begin connection"
@@ -476,6 +460,7 @@ class ModelMap(ap.Model):
         self.car_agents = ap.AgentList(self, self.p.population, Car)
         self.stoplight_agents = ap.AgentList(self, len(self.stoplights_list), Stoplight)
 
+        #Se inicializa la informacion de los semaforos
         info_index = 0
         for stoplight in self.stoplight_agents:
             stoplight.setup_pos(self, info_index)
@@ -486,40 +471,32 @@ class ModelMap(ap.Model):
         for stoplight in self.stoplight_agents:
             stoplight.setup_crossway_state(self)
 
+        #Se inicializa el tiempo del programa para los intervalos de los semaforos
+        #Tambien se inicializa la lista que contiene las velocidades promedio
         self.model_start_time = math.floor(time.time())
-
         self.average_velocity = list()
-
         print("Space setup done")
 
     def step(self):
-        """
-        - Instantiate new cars
-        - Change environment
-        - Change car positions
-        - Send string with info of
-            - Stoplights
-            - Cars
-        """
         
+        #Crea la lista de stoplights con sus estados
         stoplights_out_info = "stoplights:"
         for stoplight in self.stoplight_agents:
             stoplight.change_state(self)
             stoplights_out_info += str(stoplight.id) + "&" + str(stoplight.state) + ";"
         
-        #print(stoplights_out_info)
+        #Se manda la lista a Unity y se espera una respuesta
         self.sock.sendall(stoplights_out_info.encode("UTF-8"))
         receivedData = ""
         while (receivedData == ""):
             receivedData = self.sock.recv(1048576).decode("UTF-8")
 
-        #Actualizar la informacion de los carros y mandar a Unity
+        #Se actualiza la informacion de los carros y se guarda en una lista
         total_velocity = 0
         active_cars = 0
         car_out_info = "cars:"
         for car in self.car_agents:
-            #Si el carro no se encuentra activado hay un 40% de chance
-            #de activarlo
+            #Si el carro no se encuentra activado hay un 40% de chance de activarlo
             if (not car.active):
                 if (random.randint(1, 100) >= 60):
                     startPos = self.generators[random.randint(0, len(self.generators)-1)]
@@ -538,6 +515,7 @@ class ModelMap(ap.Model):
                 total_velocity += mag(car.velocity)
                 active_cars += 1
 
+        #Se registan las velocidades para conseguir la average_velocity del step
         if (active_cars != 0):
             self.average_velocity.append((self.t,total_velocity/active_cars))
         else:
@@ -551,18 +529,19 @@ class ModelMap(ap.Model):
             receivedData = self.sock.recv(1048576).decode("UTF-8")
 
     def end(self):
+        """ Al final de la ejecucion del modelo, se recopila la velocidad promedio
+        de los steps y se manda un plot """
         xs = [x[0] for x in self.average_velocity]
         ys = [x[1] for x in self.average_velocity]
         plt.plot(xs, ys)
         plt.show()
-        #print("Showing plt")
 
 # ---------------------------------------------------------------------------------
 parameters = {
     'length': 1000,
     'height': 1000,
     'population': 50,
-    'steps': 2000,
+    'steps': 1500,
     'seed': 123,
 }
 # MAIN-----------------------------------------------------------------------------
@@ -570,64 +549,3 @@ parameters = {
 #Se crea la instancia del modelo y se inicia la simulacion
 model_map = ModelMap(parameters)
 res = model_map.run()
-
-"""
-def animation_plot_single(m, ax):
-    ax.set_title(f"AgentPy {2}D t={m.t}")
-    pos = m.space.positions.values()
-    pos = np.array(list(pos)).T  # Transform
-    ax.scatter(*pos,marker=[(-2,-1),(2,-1),(2,1),(-2,1)],c='black')
-    #ax.scatter(0,0,c='red')
-    ax.scatter(20,30,c='red')
-    ax.scatter(30,30,c='red')
-    ax.scatter(30,20,c='red')
-    ax.scatter(20,20,c='red')
-    ax.set_xlim(0, m.p.size)
-    ax.set_ylim(0, m.p.size)
-    ax.set_axis_off()
-
-def animation_plot(m, p):
-    projection = None
-    fig = plt.figure(figsize=(7,7))
-    ax = fig.add_subplot(111, projection=projection)
-    animation = ap.animate(m(p), fig, ax, animation_plot_single)
-    plt.show()
-    print("Show plt")
-    return IPython.display.HTML(animation.to_jshtml(fps=20))
-
-host, port = "127.0.0.1", 25001
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#sock.bind((host, port))
-print("Socket bind")
-sock.connect((host, port))
-print("Socket connect")
-
-#conn,addr=sock.accept()
-#startPos = [0, 0, 0] #Vector3   x = 0, y = 0, z = 0
-posString = "Begin connection" #Converting Vector3 to a string, example "0,0,0"
-
-sock.sendall(posString.encode("UTF-8"))
-
-receivedData = sock.recv(1024).decode("UTF-8")
-print("Data received")
-
-while receivedData == "":
-    print(".", end="")
-    receivedData = sock.recv(1024).decode("UTF-8")
-    time.sleep(0.5) #sleep 0.5 sec
-    startPos[0] +=1 #increase x by one
-    posString = ','.join(map(str, startPos)) #Converting Vector3 to a string, example "0,0,0"
-    print(posString)
-
-    sock.sendall(posString.encode("UTF-8")) #Converting string to Byte, and sending it to C#
-    receivedData = sock.recv(1024).decode("UTF-8") #receiveing data in Byte fron C#, and converting it to String
-    print(receivedData)
-print("")
-print(receivedData)
-
-animation_plot(ModelMap, parameters)
-mod = ModelMap(parameters=parameters)
-print(mod.run()['info'])
-"""
-
-
