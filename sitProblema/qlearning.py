@@ -60,6 +60,8 @@ def carAdvance(currenty,currentx, targetpos):
         return [currenty, currentx - 1]
     elif rewards[currenty, currentx]==100:
         return [currenty,currentx]
+    else:
+        return [currenty,currentx]
 
 def carMove(positions):
     positions[0][0] = carAdvance(positions[0][0], positions[0][1], positions[1])[0]
@@ -108,8 +110,6 @@ while(positions[0]!= positions[1]):
 
 for row in rewards:
     print(row)
-
-
 
 """ 
 for i in range(0,len(stoplight)):
