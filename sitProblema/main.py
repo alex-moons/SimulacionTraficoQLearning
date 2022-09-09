@@ -306,7 +306,7 @@ class Stoplight(ap.Agent):
 
     def setup(self):
         self.state = True
-        self.interval_time = 10
+        self.interval_time = 5
         self.already_changed = False
 
     def setup_pos(self, model: ap.Model, id):
