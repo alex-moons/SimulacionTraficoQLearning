@@ -1,4 +1,0 @@
-Objetivo:
-Crear la simulacion en Unity del rango de sensor de un carro
-y probarlo para ver que reaccione dependiendo del agente que 
-detecte
