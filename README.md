@@ -6,3 +6,9 @@ Modelando el circuito Tec Sur-este y estableciendo objetos tipo automóvil, pode
 
 ## Presentación de la Simulación:
 https://youtu.be/bxfX2QhwzmA
+
+## Imagenes de Simulación:
+
+<img width="526" alt="PNG image" src="https://github.com/alex-moons/SimulacionTraficoQLearning/assets/93957227/1930974f-8150-4122-9a57-ecdb795fb2d8">
+
+![IMG_1948](https://github.com/alex-moons/SimulacionTraficoQLearning/assets/93957227/efbb9daa-66ee-4aba-b819-9b7cddd8a98f)
